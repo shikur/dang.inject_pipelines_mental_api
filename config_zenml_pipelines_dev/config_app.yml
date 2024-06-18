@@ -1,0 +1,31 @@
+
+config_base:
+  - name: pipeline_qa
+    config: "pipeline_config.yml"
+    config_base_path: "/app/config_zenml_pipelines_dev/"
+    data_base_path_in: "/app/data/input/qustions_answers/"
+    data_base_path_out: "/app/data/input/qustions_answers/"
+  - name:  pipeline_session_video
+    config: "pipeline_config.yml"
+    config_base_path: "/app/config_zenml_pipelines_dev/"
+    data_base_path_in: "/app/data/input/qustions_answers/"
+    data_base_path_out: "/app/data/output/qustions_answers/"
+    
+path_target: "/app/data/output/qustions_answers/mental_health_faq.csv"
+milvus:
+  milvus_host: "localhost"
+  milvus_port: 19530
+  collection_name: "qa_collection"
+  modelstr:  "sentence-transformers/all-MiniLM-L6-v2"
+  tokenizer_str: "sentence-transformers/all-MiniLM-L6-v2"
+  params:
+    nlist: 100
+  metric_type: "L2"
+
+postgres_connect:
+  username: 'postgres_user'
+  password: 'postgres_password'
+  host: 'postgresql_interviewvedio'
+  port: '5432'
+  database: 'session_db'
+

@@ -1,0 +1,21 @@
+pipelines:
+  pipeline1:
+    steps:
+      - name: load_data
+        source: load_data
+        parameters:
+          path: "/home/shiku/repo/dang.milvus_zenml_docker/data/input/qustions_answers/mental_health_faq.csv"
+      - name: train_model
+        source: train_model
+        depends_on:
+          - load_data
+  pipeline2:
+    steps:
+      - name: load_data2
+        source: load_data2
+        parameters:
+          path: "/home/shiku/repo/dang.milvus_zenml_docker/data/input/qustions_answers/mental_health_faq.csv"
+      - name: train_model2
+        source: train_model2
+        depends_on:
+          - load_data

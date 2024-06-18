@@ -1,0 +1,19 @@
+pipelines:
+    pipeline_session_video:
+      config: "pipeline_config.yml"
+      config_base_path: "./config_zenml_pipelines/"
+      steps:
+        - name: load_data
+          source: load_data
+          parameters:
+            path: "./data/input/video/test_m13.mp4"
+            path_config: "config_zenml_pipelines/pipeline_config.yml"
+            path_output: "./data/output/qustions_answers/pipeline_session_video.csv"
+        - name: train_model
+          source: train_model
+          parameters:
+            path: "./data/input/video/test_m13.mp4"
+            path_config: "config_zenml_pipelines/pipeline_config.yml"
+            path_output: "./data/output/qustions_answers/pipeline_session_video.csv"
+          depends_on:
+            - load_data

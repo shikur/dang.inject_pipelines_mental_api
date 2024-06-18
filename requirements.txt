@@ -1,0 +1,16 @@
+numpy==1.23.2
+pandas==1.4.3
+scikit-learn==1.1.2
+zenml
+uvicorn
+fastapi
+uvicorn[standard]
+pymilvus==v2.3.7
+transformers
+torch
+requests
+sqlalchemy==1.4.27
+moviepy
+facenet_pytorch
+psycopg2-binary
+mlflow  

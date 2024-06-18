@@ -1,0 +1,41 @@
+  pipelines:
+    pipeline_qa:
+      config: "pipeline_config.yml"
+      config_base_path: "/app/config_zenml_pipelines/"
+      steps:
+        - name: load_data
+          source: load_data
+          parameters:
+            path: "/app/data/input/qustions_answers/mental_health_faq.csv"
+            path_config: "config_zenml_pipelines/pipeline_config.yml"
+            path_output: "/app/data/output/qustions_answers/mental_health_faq_output.csv"
+        - name: train_model
+          source: train_model
+          depends_on:
+            - load_data
+    pipeline_session_video:
+      config: "pipeline_config.yml"
+      config_base_path: "/app/config_zenml_pipelines_dev/"
+      steps:
+        - name: load_data
+          source: load_data
+          parameters:
+            path: "/app/data/input/qustions_answers/mental_health_faq.csv"
+            path_config: "config_zenml_pipelines_dev/pipeline_config.yml"
+            path_output: "/app/data/output/qustions_answers/mental_health_faq_output.csv"
+        - name: train_model
+          source: train_model
+          depends_on:
+            - load_data
+    pipeline2:
+      config: "pipeline_config.yml"
+      config_base_path: "/app/config_zenml_pipelines_dev/"
+      steps:
+        - name: step_one
+          source: step_one
+          parameters:
+            param1: "value1"
+        - name: step_two
+          source: step_two
+          depends_on:
+            - step_one

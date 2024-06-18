@@ -1,0 +1,23 @@
+# Use an official Python runtime as a parent image
+FROM python:3.10-slim
+
+# Use an official Python runtime as a parent image
+RUN mkdir -p /usr/src/app
+
+# Set the working directory in the container
+WORKDIR /usr/src/app
+
+# Install ZenML
+RUN pip install zenml
+
+# Copy the ZenML configuration script into the container
+COPY zenml_init_script.sh .
+
+RUN chmod +x ./zenml_init_script.sh
+
+# Make port 8080 available to the world outside this container
+EXPOSE 8080
+
+# Run zenml_init_script.sh when the container launches
+CMD ["./zenml_init_script.sh"]
+

@@ -1,0 +1,12 @@
+simple_ml_pipeline2:
+  steps:
+    load_data:
+      parameters:
+        path: "./data/input/questions_answers/mental_health_faq.csv"
+    train_model: {}
+second_pipeline:
+  steps:
+    step_one:
+      parameters:
+        param1: "value1"
+    step_two: {}

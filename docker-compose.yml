@@ -1,0 +1,426 @@
+version: "3.9"
+
+services:
+  
+  mysql:
+    container_name: mysql_zenml
+    restart: always
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=password
+    volumes:
+      - "$PWD/mysql-data:/var/lib/mysql"
+    networks:
+      - data_injection_nt  
+  
+  postgresql_interviewvedio:
+    image: postgres:14
+    container_name: postgresql_interviewvedio
+    restart: always
+    environment:
+      POSTGRES_USER: postgres_user
+      POSTGRES_PASSWORD: postgres_password
+      POSTGRES_DB: session_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  
+      - data_qa_io:/var/lib/postgresql/data1
+      - ./db:/var/lib/postgresql/data1
+      # - ./config/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./config/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./config/pg_hba.conf:/etc/postgresql/pg_hba.conf
+      - ./db/init1.sql:/docker-entrypoint-initdb.d/init1.sql
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "psql -h localhost -U postgres_user -d session_db -c 'SELECT 1;'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - data_injection_nt 
+    depends_on:
+      - mysql  
+  zenml:
+    # build:
+    #   context: .
+    #   dockerfile: ./Dockerfile_zenml
+    container_name: zenml_service
+    image: zenmldocker/zenml-server:0.58.2
+    
+    ports:
+      - "8080:8080" #zenml dashboard
+    environment:
+      - ZENML_STORE_URL=mysql://root:password@mysql/zenml
+      - ZENML_DEFAULT_USER_NAME=shikur
+      - ZENML_DEFAULT_USER_PASSWORD=@@Password2005
+      # - ZENML_API_URL=http://web:8081
+    links:
+      - mysql
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: on-failure
+    networks:
+      - data_injection_nt
+    depends_on:
+      - mysql
+
+  web:
+    build:
+      context: .
+      dockerfile: ./Dockerfile_api
+    ports:
+      - "8081:8081" 
+    volumes:
+      - .:/opt/webapi/app
+    environment:      
+      ZENML_BASE_URL: http://zenml:8080
+      ZENML_API_TOKEN: ZENKEY_eyJpZCI6ICJkMzA0NTA1MS1lMmRiLTQ3NGItYjkzZC1lMDZlM2ZlNzc3ODIiLCAia2V5IjogIjg0ZGZkYzJjMzMxNjhlZGRmOGM3M2NiMDQ1OTM3NGI5OGMzMzA3ODhmMmEwNTk3MGVmNTNlOTMyNjIzYmZhYjgifQ==
+    networks:
+      - data_injection_nt
+  
+    depends_on:
+      - zenml      
+     
+  mlflow:
+    build:
+      context: .
+      dockerfile: ./Dockerfile_mlflow
+    environment:
+      - MLFLOW_TRACKING_URI=http://0.0.0.0:5002
+      - ARTIFACT_STORE=/mlflow/artifacts
+      - MLFLOW_ARTIFACT_ROOT=/mlflow/artifacts
+    ports:
+      - "5002:5002"
+    volumes:
+      - mlflow_data:/app/mlflow
+      - ./mlruns:/mlflow/mlruns
+    networks:
+      - data_injection_nt
+  
+    depends_on:
+      - zenml       
+
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - data_injection_nt
+  minio:
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9001:9001"
+      - "9000:9000"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - data_injection_nt
+
+  standalone:
+    container_name: standalone
+    image: milvusdb/milvus:v2.3.3
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+    - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - "etcd"
+      - "minio"
+    networks:
+      - data_injection_nt  
+
+  attu:
+    container_name: attu
+    image: zilliz/attu:latest
+    environment:
+      MILVUS_URL: milvus-standalone:19530
+    networks:
+      - data_injection_nt  
+    ports:
+      - "8003:3000" 
+    depends_on:
+      - "standalone"  
+  
+networks:
+  data_injection_nt:
+    driver: bridge
+ 
+volumes:
+  data_qa_io:
+  mlflow_data:
+
+  # This service runs the postgres DB used by dagster for run storage, schedule storage,
+  # and event log storage.
+  # docker_dangdata_postgresql:
+  #   image: postgres:11
+  #   container_name: docker_dangdata_postgresql
+  #   environment:
+  #     POSTGRES_USER: "postgres_user"
+  #     POSTGRES_PASSWORD: "postgres_password"
+  #     POSTGRES_DB: "postgres_db"
+  #   networks:
+  #     - docker_dangdata_network
+
+
+# networks:
+#   data_injection_nt:
+ 
+# volumes:
+#   data_qa_io:
+#     external: false
+# version: "3.9"
+
+# services:
+#   mysql:
+#     image: mysql:8.0
+#     ports:
+#       - 3306:3306
+#     volumes:
+#       - type: bind
+#         source: ./data
+#         target: /var/lib/mysql
+#     environment:
+#       - MYSQL_ROOT_PASSWORD=password
+#     networks:
+#       - data_injection_nt  
+#   zenml:
+#     image: zenmldocker/zenml-server
+#     ports:
+#       - "8080:8080"
+#     environment:
+#       - ZENML_STORE_URL=mysql://root:password@host.docker.internal/zenml
+#       - ZENML_DEFAULT_USER_NAME=admin
+#       - ZENML_DEFAULT_USER_PASSWORD=zenml
+#     links:
+#       - mysql
+#     # extra_hosts:
+#     #   - "host.docker.internal:host-gateway"
+#     restart: on-failure
+#     networks:
+#       - data_injection_nt
+
+#   etcd:
+#     container_name: milvus-etcd
+#     image: quay.io/coreos/etcd:v3.5.5
+#     environment:
+#       - ETCD_AUTO_COMPACTION_MODE=revision
+#       - ETCD_AUTO_COMPACTION_RETENTION=1000
+#       - ETCD_QUOTA_BACKEND_BYTES=4294967296
+#       - ETCD_SNAPSHOT_COUNT=50000
+#     volumes:
+#       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+#     command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+#     healthcheck:
+#       test: ["CMD", "etcdctl", "endpoint", "health"]
+#       interval: 30s
+#       timeout: 20s
+#       retries: 3
+#     networks:
+#       - data_injection_nt
+#   minio:
+#     container_name: milvus-minio
+#     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+#     environment:
+#       MINIO_ACCESS_KEY: minioadmin
+#       MINIO_SECRET_KEY: minioadmin
+#     ports:
+#       - "9001:9001"
+#       - "9000:9000"
+#     volumes:
+#       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
+#     command: minio server /minio_data --console-address ":9001"
+#     healthcheck:
+#       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+#       interval: 30s
+#       timeout: 20s
+#       retries: 3
+#     networks:
+#       - data_injection_nt
+#   standalone:
+#     container_name: milvus-standalone
+#     image: milvusdb/milvus:v2.3.3
+#     command: ["milvus", "run", "standalone"]
+#     security_opt:
+#     - seccomp:unconfined
+#     environment:
+#       ETCD_ENDPOINTS: etcd:2379
+#       MINIO_ADDRESS: minio:9000
+#     volumes:
+#       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+#     healthcheck:
+#       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+#       interval: 30s
+#       start_period: 90s
+#       timeout: 20s
+#       retries: 3
+#     ports:
+#       - "19530:19530"
+#       - "9091:9091"
+#     depends_on:
+#       - "etcd"
+#       - "minio"
+#     networks:
+#       - data_injection_nt
+
+
+#   attu:
+#     container_name: attu
+#     image: zilliz/attu:latest
+#     environment:
+#       MILVUS_URL: milvus-standalone:19530
+#     networks:
+#       - data_injection_nt  
+#     ports:
+#       - "8003:3000" 
+#     depends_on:
+#       - "standalone"  
+ 
+#   pipeline_conv_dr_client:
+#     container_name: pipeline_conv_dr_client
+#     image: pipeline_conv_dr_client
+#     restart: always
+#     environment:
+#       DAGSTER_POSTGRES_USER: "postgres_user"
+#       DAGSTER_POSTGRES_PASSWORD: "postgres_password"
+#       DAGSTER_POSTGRES_DB: "postgres_db"
+#       DAGSTER_CURRENT_IMAGE: "pipeline_conv_dr_client"      
+#     networks:
+#       - data_injection_nt
+      
+#     # volumes:
+#     #   # - /opt/dagster/dagster_home:/tmp/dagster-data
+#     #   - ./pipeline_conversation_mentalhealth/data/input:/opt/dagster/app/pipeline_conversation_mentalhealth/data/input
+#     #   # - dagster_output:/opt/dagster/app/session_video/data/output
+#     #   - /home/shikur/pipeline_conversation_mentalhealth/data/output:/opt/dagster/app/pipeline_conversation_mentalhealth/data/output
+    
+#   # This service runs the gRPC server that loads your user code, in both dagster-webserver
+#   # and dagster-daemon. By setting DAGSTER_CURRENT_IMAGE to its own image, we tell the
+#   # run launcher to use this same image when launching runs in a new container as well.
+#   # Multiple containers like this can be deployed separately - each just needs to run on
+#   # its own port, and have its own entry in the workspace.yaml file that's loaded by the
+#       # webserver.
+#   # session_video2:
+     
+#   #   container_name: session_video2
+#   #   image: session_video2     
+    
+#   #   restart: always
+#   #   environment:
+#   #     DAGSTER_POSTGRES_USER: "postgres_user"
+#   #     DATABASE_PORT: 5432
+#   #     DAGSTER_POSTGRES_PASSWORD: "postgres_password"
+#   #     DAGSTER_POSTGRES_DB: "session_db"
+#   #     DAGSTER_CURRENT_IMAGE: "session_video"  
+         
+#   #   networks:
+#   #     - data_injection_nt
+      
+#     # volumes:
+#     #   # - /var/run/docker.sock:/var/run/docker.sock
+#       # # - /opt/dagster/app/local_store/session_video/data/output:/opt/dagster/app/datamain
+#       # - data_qa_io:/opt/dagster/app/datamain
+#       # - ./data/input:/opt/dagster/app/session_video/data/input
+#       # - /mnt/c/Users/shiku/repo/test:/opt/dagster/app/datamain:rw,consistent
+#       # - /mnt/c/Users/shiku/temp/dagster_data:/tmp/dagster_data
+#       # - /mnt/c/Users/shiku/temp/dangster_data:/opt/dagster/dagster_home/storage:rw
+
+#     # depends_on: 
+#     #   - postgresql_inputvedio  
+#     # user: "1000:1000" 
+#       # - dagster_output:/opt/dagster/app/datamain
+        
+#       # - /opt/dagster/app/local_store/output/session_video:/opt/dagster/app/session_video/data/output 
+#   postgresql_qa:
+#     image: postgres:13
+#     container_name: postgresql_qa
+#     restart: always
+#     environment:
+#       POSTGRES_USER: postgres_user
+#       POSTGRES_PASSWORD: postgres_password
+#       POSTGRES_DB: session_db
+#     ports:
+#       - "5432:5432"
+#     # volumes:
+#     #   - /var/run/docker.sock:/var/run/docker.sock  
+#     #   - data_qa_io:/var/lib/postgresql/data
+#     #   - ./data/db:/var/lib/postgresql/data
+#     #   # - ./config/postgresql.conf:/etc/postgresql/postgresql.conf
+#     #   - ./session_video/config/postgresql.conf:/etc/postgresql/postgresql.conf
+#     #   - ./session_video/config/pg_hba.conf./config/pg_hba.conf:/etc/postgresql/pg_hba.conf
+#     #   - ./session_video/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+#     command: postgres -c config_file=/etc/postgresql/postgresql.conf
+#     healthcheck:
+#       test: ["CMD-SHELL", "psql -h localhost -U postgres_user -d session_db -c 'SELECT 1;'"]
+#       interval: 30s
+#       timeout: 10s
+#       retries: 3
+#     networks:
+#       - data_injection_nt  
+#   # This service runs dagster-webserver, which loads your user code from the user code container.
+#   # Since our instance uses the QueuedRunCoordinator, any runs submitted from the webserver will be put on
+#   # a queue and later dequeued and launched by dagster-daemon.
+#   # appapi:
+#   #   build: 
+#   #     context: .
+#   #     dockerfile: ./webapi/Dockerfile-api
+#   #   command:  uvicorn app.main:app --host 0.0.0.0 --reload --port 8000
+
+#   #   ports:
+#   #     - "8000:8000"
+#   #   depends_on:
+#   #     - postgresql_inputvedio
+#   #   environment:
+#   #     DATABASE_URL: postgresql://postgres_user:postgres_password@postgresql_inputvedio/session_db
+#   #     DATABASE_HOST: postgresql_inputvedio
+#   #     DATABASE_USER: postgres_user
+#   #     DATABASE_PASSWORD: postgres_password
+#   #     DATABASE_NAME: session_db
+#   #     DATABASE_PORT: 5432  
+#   #   networks:
+#   #     - data_injection_nt 
+
+# networks:
+#   data_injection_nt:
+ 
+# volumes:
+#   data_qa_io:
+#     external: false 
+ 
